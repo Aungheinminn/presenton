@@ -10,15 +10,15 @@ def get_database_url_env():
 
 
 def get_app_data_directory_env():
-    return os.getenv("APP_DATA_DIRECTORY")
+    return os.getenv("APP_DATA_DIRECTORY", "./app_data")
 
 
 def get_temp_directory_env():
-    return os.getenv("TEMP_DIRECTORY")
+    return os.getenv("TEMP_DIRECTORY", "./app_data/temp")
 
 
 def get_user_config_path_env():
-    return os.getenv("USER_CONFIG_PATH")
+    return os.getenv("USER_CONFIG_PATH", "./app_data/user_config.json")
 
 
 def get_llm_provider_env():
@@ -117,3 +117,7 @@ def get_dall_e_3_quality_env():
 # Gpt Image 1.5 Quality
 def get_gpt_image_1_5_quality_env():
     return os.getenv("GPT_IMAGE_1_5_QUALITY")
+
+
+def get_nextjs_url_env():
+    return os.getenv("NEXTJS_URL", "http://localhost:3000")

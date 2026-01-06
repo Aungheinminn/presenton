@@ -11,6 +11,7 @@ from models.presentation_and_path import PresentationAndPath
 from services.pptx_presentation_creator import PptxPresentationCreator
 from services.temp_file_service import TEMP_FILE_SERVICE
 from utils.asset_directory_utils import get_exports_directory
+from utils.get_env import get_nextjs_url_env
 import uuid
 
 
@@ -20,9 +21,10 @@ async def export_presentation(
     if export_as == "pptx":
 
         # Get the converted PPTX model from the Next.js service
+        nextjs_url = get_nextjs_url_env()
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"http://localhost/api/presentation_to_pptx_model?id={presentation_id}"
+                f"{nextjs_url}/api/presentation_to_pptx_model?id={presentation_id}"
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -51,9 +53,10 @@ async def export_presentation(
             path=pptx_path,
         )
     else:
+        nextjs_url = get_nextjs_url_env()
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "http://localhost/api/export-as-pdf",
+                f"{nextjs_url}/api/export-as-pdf",
                 json={
                     "id": str(presentation_id),
                     "title": sanitize_filename(title or str(uuid.uuid4())),

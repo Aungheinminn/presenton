@@ -3,13 +3,19 @@ const nextConfig = {
   reactStrictMode: false,
   distDir: ".next-build",
   
+  // Mark recharts as external for server components to avoid SSR issues
+  serverExternalPackages: ['recharts'],
 
-  // Rewrites for development - proxy font requests to FastAPI backend
+  // Rewrites for development - proxy requests to FastAPI backend
   async rewrites() {
     return [
       {
         source: '/app_data/fonts/:path*',
         destination: 'http://localhost:8000/app_data/fonts/:path*',
+      },
+      {
+        source: '/api/v1/:path*',
+        destination: 'http://localhost:8000/api/v1/:path*',
       },
     ];
   },

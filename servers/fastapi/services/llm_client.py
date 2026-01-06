@@ -15,6 +15,7 @@ from google.genai.types import (
     ToolConfig as GoogleToolConfig,
     FunctionCallingConfig as GoogleFunctionCallingConfig,
     FunctionCallingConfigMode as GoogleFunctionCallingConfigMode,
+    HttpOptions,
 )
 from google.genai.types import Tool as GoogleTool
 from anthropic import AsyncAnthropic
@@ -112,7 +113,7 @@ class LLMClient:
                 status_code=400,
                 detail="OpenAI API Key is not set",
             )
-        return AsyncOpenAI()
+        return AsyncOpenAI(timeout=300.0)  # 5 minutes timeout
 
     def _get_google_client(self):
         if not get_google_api_key_env():
@@ -120,7 +121,9 @@ class LLMClient:
                 status_code=400,
                 detail="Google API Key is not set",
             )
-        return genai.Client()
+        return genai.Client(
+            http_options=HttpOptions(timeout=300)  # 5 minutes timeout (in seconds)
+        )
 
     def _get_anthropic_client(self):
         if not get_anthropic_api_key_env():
@@ -128,12 +131,13 @@ class LLMClient:
                 status_code=400,
                 detail="Anthropic API Key is not set",
             )
-        return AsyncAnthropic()
+        return AsyncAnthropic(timeout=300.0)  # 5 minutes timeout
 
     def _get_ollama_client(self):
         return AsyncOpenAI(
             base_url=(get_ollama_url_env() or "http://localhost:11434") + "/v1",
             api_key="ollama",
+            timeout=300.0,  # 5 minutes timeout
         )
 
     def _get_custom_client(self):
@@ -145,6 +149,7 @@ class LLMClient:
         return AsyncOpenAI(
             base_url=get_custom_llm_url_env(),
             api_key=get_custom_llm_api_key_env() or "null",
+            timeout=300.0,  # 5 minutes timeout
         )
 
     # ? Prompts
@@ -1295,7 +1300,6 @@ class LLMClient:
         tools: Optional[List[dict]] = None,
         depth: int = 0,
     ) -> AsyncGenerator[str, None]:
-
         client: genai.Client = self._client
 
         google_tools = None

@@ -1,5 +1,9 @@
 import uvicorn
 import argparse
+from dotenv import load_dotenv
+
+# Load .env file if it exists (optional - environment variables can be passed from parent process)
+load_dotenv(override=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the FastAPI server")
@@ -11,7 +15,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     reload = args.reload == "true"
-    
+
     uvicorn.run(
         "api.main:app",
         host="127.0.0.1",

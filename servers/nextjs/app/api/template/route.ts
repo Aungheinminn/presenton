@@ -9,7 +9,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing group name" }, { status: 400 });
   }
 
-  const schemaPageUrl = `http://localhost/schema?group=${encodeURIComponent(
+  // Use NEXTJS_URL environment variable, defaulting to localhost:3000 for development
+  const nextjsUrl = process.env.NEXTJS_URL || "http://localhost:3000";
+  
+  const schemaPageUrl = `${nextjsUrl}/schema?group=${encodeURIComponent(
     groupName
   )}`;
 
@@ -33,23 +36,39 @@ export async function GET(request: Request) {
     });
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 720 });
-    page.setDefaultNavigationTimeout(300000);
-    page.setDefaultTimeout(300000);
+    page.setDefaultNavigationTimeout(60000);
+    page.setDefaultTimeout(60000);
     await page.goto(schemaPageUrl, {
       waitUntil: "networkidle0",
-      timeout: 300000,
+      timeout: 60000,
     });
 
-    await page.waitForSelector("[data-layouts]", { timeout: 300000 });
-    await page.waitForSelector("[data-settings]", { timeout: 300000 });
+    // Wait for either data-layouts or data-error to appear
+    await page.waitForSelector("[data-layouts], [data-error]", { timeout: 60000 });
 
-    const { dataLayouts, dataGroupSettings } = await page.$eval(
-      "[data-layouts]",
-      (el) => ({
-        dataLayouts: el.getAttribute("data-layouts"),
-        dataGroupSettings: el.getAttribute("data-settings"),
-      })
-    );
+    // Check if there was an error
+    const errorElement = await page.$("[data-error]");
+    if (errorElement) {
+      const errorMessage = await errorElement.evaluate((el) =>
+        el.getAttribute("data-error")
+      );
+      return NextResponse.json(
+        { error: errorMessage || "Unknown error loading template" },
+        { status: 500 }
+      );
+    }
+
+    // Wait for data-settings as well
+    await page.waitForSelector("[data-settings]", { timeout: 60000 });
+
+    const { dataLayouts, dataGroupSettings } = await page.evaluate(() => {
+      const layoutsEl = document.querySelector("[data-layouts]");
+      const settingsEl = document.querySelector("[data-settings]");
+      return {
+        dataLayouts: layoutsEl?.getAttribute("data-layouts") || "[]",
+        dataGroupSettings: settingsEl?.getAttribute("data-settings") || "null",
+      };
+    });
 
     let slides, groupSettings;
     try {
@@ -76,8 +95,13 @@ export async function GET(request: Request) {
 
     return NextResponse.json(response);
   } catch (err) {
+    console.error("Error fetching template schema:", err);
     return NextResponse.json(
-      { error: "Failed to fetch or parse client page" },
+      { 
+        error: "Failed to fetch or parse client page",
+        details: err instanceof Error ? err.message : String(err),
+        url: schemaPageUrl
+      },
       { status: 500 }
     );
   } finally {

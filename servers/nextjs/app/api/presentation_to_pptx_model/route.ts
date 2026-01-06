@@ -96,12 +96,17 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   const page = await browser.newPage();
 
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
-  page.setDefaultNavigationTimeout(300000);
-  page.setDefaultTimeout(300000);
-  await page.goto(`http://localhost/pdf-maker?id=${id}`, {
-    waitUntil: "networkidle0",
-    timeout: 300000,
+  page.setDefaultNavigationTimeout(120000);
+  page.setDefaultTimeout(120000);
+  
+  // Use 'domcontentloaded' instead of 'networkidle0' since React apps with 
+  // dynamic data fetching may never reach network idle state
+  const nextjsUrl = process.env.NEXTJS_URL || "http://localhost:3000";
+  await page.goto(`${nextjsUrl}/pdf-maker?id=${id}`, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
   });
+  
   return [browser, page];
 }
 
@@ -254,10 +259,34 @@ async function getSlidesAndSpeakerNotes(page: Page) {
 }
 
 async function getSlidesWrapper(page: Page): Promise<ElementHandle<Element>> {
+  // Wait for the slides wrapper to appear
   const slides_wrapper = await page.$("#presentation-slides-wrapper");
   if (!slides_wrapper) {
     throw new ApiError("Presentation slides not found");
   }
+  
+  // Wait for actual slides to load (indicated by data-speaker-note attribute)
+  // This ensures both LayoutContext has loaded templates AND presentation data has been fetched
+  try {
+    await page.waitForSelector('#presentation-slides-wrapper [data-speaker-note]', {
+      timeout: 60000, // 60 second timeout for slides to load
+    });
+  } catch (error) {
+    // Check if it's an error state (error UI is rendered)
+    const hasError = await page.$('#presentation-slides-wrapper .text-red-700');
+    if (hasError) {
+      throw new ApiError("Failed to load presentation - error occurred while fetching");
+    }
+    
+    // Check if still showing loading skeletons
+    const hasSkeleton = await page.$('#presentation-slides-wrapper .animate-pulse');
+    if (hasSkeleton) {
+      throw new ApiError("Presentation failed to load - timed out while waiting for slides");
+    }
+    
+    throw new ApiError("Presentation slides not found - no slides rendered");
+  }
+  
   return slides_wrapper;
 }
 

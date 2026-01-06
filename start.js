@@ -1,15 +1,55 @@
 /* This script starts the FastAPI and Next.js servers, setting up user configuration if necessary. It reads environment variables to configure API keys and other settings, ensuring that the user configuration file is created if it doesn't exist. The script also handles the starting of both servers and keeps the Node.js process alive until one of the servers exits. */
 
+import { config } from "dotenv";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
+import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+
+// Load environment variables from .env file, overriding existing ones
+config({ override: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const fastapiDir = join(__dirname, "servers/fastapi");
 const nextjsDir = join(__dirname, "servers/nextjs");
+
+// Helper function to check if a command exists
+const commandExists = (cmd) => {
+  try {
+    execSync(`command -v ${cmd}`, { stdio: "ignore", shell: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Helper function to kill processes on a specific port
+const killProcessOnPort = (port) => {
+  try {
+    const result = execSync(`lsof -i :${port} 2>/dev/null | grep -v COMMAND | awk '{print $2}' | sort -u`, { 
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "ignore"]
+    }).trim();
+    
+    if (result) {
+      const pids = result.split("\n").filter(pid => pid);
+      for (const pid of pids) {
+        try {
+          execSync(`kill -9 ${pid}`, { stdio: "ignore" });
+        } catch {
+          // Process might already be dead
+        }
+      }
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
 
 const args = process.argv.slice(2);
 const hasDevArg = args.includes("--dev") || args.includes("-d");
@@ -19,6 +59,12 @@ const canChangeKeys = process.env.CAN_CHANGE_KEYS !== "false";
 const fastapiPort = 8000;
 const nextjsPort = 3000;
 const appmcpPort = 8001;
+
+// Set default APP_DATA_DIRECTORY if not provided
+if (!process.env.APP_DATA_DIRECTORY) {
+  process.env.APP_DATA_DIRECTORY = join(__dirname, "app_data");
+  console.log(`APP_DATA_DIRECTORY not set, using default: ${process.env.APP_DATA_DIRECTORY}`);
+}
 
 const userConfigPath = join(process.env.APP_DATA_DIRECTORY, "userConfig.json");
 const userDataDir = dirname(userConfigPath);
@@ -109,8 +155,17 @@ const setupUserConfigFromEnv = () => {
 };
 
 const startServers = async () => {
+  // Use the virtual environment's Python if it exists
+  const venvPythonPath = join(fastapiDir, ".venv", "bin", "python");
+  const pythonCmd = existsSync(venvPythonPath) ? venvPythonPath : (commandExists("python3") ? "python3" : "python");
+  
+  if (!commandExists(pythonCmd) && !existsSync(pythonCmd)) {
+    console.error(`Error: Python is not installed. Please install Python 3 to continue.`);
+    process.exit(1);
+  }
+
   const fastApiProcess = spawn(
-    "python",
+    pythonCmd,
     [
       "server.py",
       "--port",
@@ -130,7 +185,7 @@ const startServers = async () => {
   });
 
   const appmcpProcess = spawn(
-    "python",
+    pythonCmd,
     ["mcp_server.py", "--port", appmcpPort.toString()],
     {
       cwd: fastapiDir,
@@ -165,48 +220,80 @@ const startServers = async () => {
     console.error("Next.js process failed to start:", err);
   });
 
-  const ollamaProcess = spawn("ollama", ["serve"], {
-    cwd: "/",
-    stdio: "inherit",
-    env: process.env,
-  });
+  // Only start Ollama if it's available
+  let ollamaProcess = null;
+  if (commandExists("ollama")) {
+    console.log("Starting Ollama...");
+    ollamaProcess = spawn("ollama", ["serve"], {
+      cwd: "/",
+      stdio: "inherit",
+      env: process.env,
+    });
 
-  ollamaProcess.on("error", (err) => {
-    console.error("Ollama process failed to start:", err);
-  });
+    ollamaProcess.on("error", (err) => {
+      console.error("Ollama process failed to start:", err);
+    });
+  } else {
+    console.log("Ollama not found. Skipping Ollama startup. You can configure Ollama URL manually if needed.");
+  }
 
-  // Keep the Node process alive until both servers exit
-  const exitCode = await Promise.race([
+  // Keep the Node process alive until one of the main servers exits
+  const processesToWaitFor = [
     new Promise((resolve) => fastApiProcess.on("exit", resolve)),
     new Promise((resolve) => nextjsProcess.on("exit", resolve)),
-    new Promise((resolve) => ollamaProcess.on("exit", resolve)),
-  ]);
+  ];
+
+  if (ollamaProcess) {
+    processesToWaitFor.push(
+      new Promise((resolve) => ollamaProcess.on("exit", resolve))
+    );
+  }
+
+  const exitCode = await Promise.race(processesToWaitFor);
 
   console.log(`One of the processes exited. Exit code: ${exitCode}`);
   process.exit(exitCode);
 };
 
-// Start nginx service
+// Start nginx service (optional, mainly for production)
 const startNginx = () => {
-  const nginxProcess = spawn("service", ["nginx", "start"], {
-    stdio: "inherit",
-    env: process.env,
-  });
+  // Nginx is typically not used in development on macOS
+  // Only attempt to start on Linux with service command
+  if (process.platform === "linux" && commandExists("service")) {
+    const nginxProcess = spawn("service", ["nginx", "start"], {
+      stdio: "inherit",
+      env: process.env,
+    });
 
-  nginxProcess.on("error", (err) => {
-    console.error("Nginx process failed to start:", err);
-  });
+    nginxProcess.on("error", (err) => {
+      console.error("Nginx process failed to start:", err);
+    });
 
-  nginxProcess.on("exit", (code) => {
-    if (code === 0) {
-      console.log("Nginx started successfully");
-    } else {
-      console.error(`Nginx failed to start with exit code: ${code}`);
-    }
-  });
+    nginxProcess.on("exit", (code) => {
+      if (code === 0) {
+        console.log("Nginx started successfully");
+      } else {
+        console.error(`Nginx failed to start with exit code: ${code}`);
+      }
+    });
+  } else {
+    console.log("Nginx not started (platform-specific or not available in development)");
+  }
 };
 
 const main = async () => {
+  // Clean up any lingering processes on required ports
+  console.log("Cleaning up any lingering processes on ports 8000 and 3000...");
+  if (killProcessOnPort(8000)) {
+    console.log("Cleaned up port 8000");
+  }
+  if (killProcessOnPort(3000)) {
+    console.log("Cleaned up port 3000");
+  }
+  if (killProcessOnPort(8001)) {
+    console.log("Cleaned up port 8001");
+  }
+
   if (isDev) {
     await setupNodeModules();
   }

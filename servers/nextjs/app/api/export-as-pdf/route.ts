@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
   page.setDefaultNavigationTimeout(300000);
   page.setDefaultTimeout(300000);
 
-  await page.goto(`http://localhost/pdf-maker?id=${id}`, {
+  const nextjsUrl = process.env.NEXTJS_URL || "http://localhost:3000";
+  await page.goto(`${nextjsUrl}/pdf-maker?id=${id}`, {
     waitUntil: "networkidle0",
     timeout: 300000,
   });

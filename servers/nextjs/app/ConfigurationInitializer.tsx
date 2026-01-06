@@ -8,17 +8,25 @@ import { useDispatch } from 'react-redux';
 import { checkIfSelectedOllamaModelIsPulled } from '@/utils/providerUtils';
 import { LLMConfig } from '@/types/llm_config';
 
+// Routes that should skip configuration initialization (internal routes used by Puppeteer)
+const SKIP_CONFIG_ROUTES = ['/pdf-maker', '/schema'];
+
 export function ConfigurationInitializer({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
-
-  const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
   const route = usePathname();
+  
+  // Skip loading state entirely for internal routes used by Puppeteer
+  const shouldSkipConfig = SKIP_CONFIG_ROUTES.some(r => route?.startsWith(r));
 
-  // Fetch user config state
+  const [isLoading, setIsLoading] = useState(!shouldSkipConfig);
+  const router = useRouter();
+
+  // Fetch user config state (skip for internal routes)
   useEffect(() => {
-    fetchUserConfigState();
-  }, []);
+    if (!shouldSkipConfig) {
+      fetchUserConfigState();
+    }
+  }, [shouldSkipConfig]);
 
   const setLoadingToFalseAfterNavigatingTo = (pathname: string) => {
     const interval = setInterval(() => {
